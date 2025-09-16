@@ -3,11 +3,10 @@ import os
 import random
 from datetime import datetime, timedelta
 
-customer_ids = list(range(1, 200))
+customer_ids = list(range(1, 21))
 store_ids = list(range(121, 124))
 product_data = {
     "quaker oats": 212,
-    "pasta": 200,
     "sugar": 50,
     "maida": 20,
     "besan": 52,
@@ -31,7 +30,7 @@ with open(csv_file_path, "w", newline="") as csvfile:
     csvwriter = csv.writer(csvfile)
     csvwriter.writerow(["customer_id", "store_id", "product_name", "sales_date", "sales_person_id", "price", "quantity", "total_cost"])
 
-    for _ in range(5000000):
+    for _ in range(500000):
         customer_id = random.choice(customer_ids)
         store_id = random.choice(store_ids)
         product_name = random.choice(list(product_data.keys()))
