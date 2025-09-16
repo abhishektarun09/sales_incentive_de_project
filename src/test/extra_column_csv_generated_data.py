@@ -21,7 +21,7 @@ sales_persons = {
     123: [7, 8, 9]
 }
 
-file_location = "C:\\Users\\nikita\\Documents\\data_engineering\\spark_data"
+file_location = "D:\\DS_ML\\DE_Project_M_Kumar_FileDownload\\sales_data_to_s3"
 
 if not os.path.exists(file_location):
     os.makedirs(file_location)
@@ -29,12 +29,12 @@ if not os.path.exists(file_location):
 input_date_str = input("Enter the date for which you want to generate (YYYY-MM-DD): ")
 input_date = datetime.strptime(input_date_str, "%Y-%m-%d")
 
-csv_file_path = os.path.join(file_location, f"sales_data_{input_date_str}.csv")
+csv_file_path = os.path.join(file_location, f"sales_data_{input_date_str}_extra_col.csv")
 with open(csv_file_path, "w", newline="") as csvfile:
     csvwriter = csv.writer(csvfile)
     csvwriter.writerow(["customer_id", "store_id", "product_name", "sales_date", "sales_person_id", "price", "quantity", "total_cost", "payment_mode"])
 
-    for _ in range(1000):
+    for _ in range(450000):
         customer_id = random.choice(customer_ids)
         store_id = random.choice(store_ids)
         product_name = random.choice(list(product_data.keys()))

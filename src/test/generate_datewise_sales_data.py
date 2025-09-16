@@ -23,7 +23,7 @@ sales_persons = {
 }
 
 
-file_location = "C:\\Users\\nikita\\Documents\\data_engineering\\spark_data"
+file_location = "D:\\DS_ML\\DE_Project_M_Kumar_FileDownload\\sales_data_to_s3"
 
 if not os.path.exists(file_location):
     os.makedirs(file_location)
