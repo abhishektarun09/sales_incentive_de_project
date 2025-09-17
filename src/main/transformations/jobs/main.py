@@ -2,6 +2,7 @@ import sys
 from resources.dev import config
 from src.main.download.aws_file_download import S3FileDownloader
 from src.main.read.aws_read import S3Reader
+from src.main.utility.spark_session import spark_session
 from src.main.utility.s3_client_object import S3ClientProvider
 from src.main.utility.encrypt_decrypt import decrypt
 from src.main.utility.logging_config import logger
@@ -27,12 +28,11 @@ csv_files = [file for file in os.listdir(config.local_directory) if file.endswit
 connection = get_mysql_connection()
 cursor = connection.cursor()
 
-total_csv_files = []
 if csv_files:
     statement = f"""
     select distinct file_name
-    from ({config.database_name}).({config.product_staging_table})
-    where file_name in ({str(total_csv_files)[1:-1]}) and status = 'A'
+    from {config.database_name}.{config.product_staging_table}
+    where file_name in ({str(csv_files)[1:-1]}) and status = 'A'
     """
     logger.info(f"Dynamically created statement: {statement}")
     cursor.execute(statement)
@@ -62,7 +62,7 @@ except Exception as e:
 # Download files from S3
 bucket_name = config.bucket_name
 local_directory = config.local_directory
-
+'''
 prefix = f"s3://{bucket_name}/"
 file_paths = [url[len(prefix):] for url in s3_absolute_file_path]
 logger.info("File path available on S3 under %s bucket and folder name is %s", bucket_name, file_paths)
@@ -73,4 +73,34 @@ try:
     downloader.download_files(file_paths)
 except Exception as e:
     logger.error(f"File download error: {e}")
-    sys.exit()
+    sys.exit()'''
+    
+# List of files in local directory
+all_files = os.listdir(local_directory)
+logger.info(f"List of files present at the local directory after download {all_files}")
+
+# Filter only CSV files and create absolute paths
+
+if all_files:
+    csv_files = []
+    error_files = []
+    for files in all_files:
+        if files.endswith(".csv"):
+            csv_files.append(os.path.abspath(os.path.join(local_directory, files)))
+        else:
+            error_files.append(os.path.abspath(os.path.join(local_directory, files)))
+            
+    if not csv_files:
+        logger.error("No CSV file available to process")
+        raise Exception("No CSV file available to process")
+else:
+    logger.error("No data to process")
+    raise Exception("There is no data to process")
+
+logger.info("***************Listing the files***************")
+logger.info("List of csv files that needs to be processed %s", csv_files)
+logger.info("***************Creating Spark Session***************")
+
+spark = spark_session()
+
+logger.info("***************Spark Session created****************")
