@@ -1,13 +1,20 @@
+import datetime
+import shutil
 import sys
+import os
+
 from resources.dev import config
 from src.main.download.aws_file_download import S3FileDownloader
+from src.main.move.move_files import move_s3_to_s3
 from src.main.read.aws_read import S3Reader
+from src.main.read.database_read import DatabaseReader
 from src.main.utility.spark_session import spark_session
 from src.main.utility.s3_client_object import S3ClientProvider
 from src.main.utility.encrypt_decrypt import decrypt
 from src.main.utility.logging_config import logger
-import os
 from src.main.utility.my_sql_session import get_mysql_connection
+from pyspark.sql.types import *
+from pyspark.sql.functions import *
 
 # S3 Client
 aws_access_key = config.aws_access_key
@@ -104,3 +111,126 @@ logger.info("***************Creating Spark Session***************")
 spark = spark_session()
 
 logger.info("***************Spark Session created****************")
+
+# Check schema of CSV files
+# If required columns do not match then keep it in lst or error files
+# else union all the data into one dataframe
+
+logger.info("***************Checking Schema of data from S3***************")
+
+correct_files = []
+for data in csv_files:
+    data_schema = spark.read.format("csv")\
+        .option("header", "true")\
+        .load(data).columns
+    logger.info(f"Schema for the {data} is {data_schema}")
+    logger.info(f"Mandatory columns in Schema is {config.mandatory_columns}")
+    missing_columns = set(config.mandatory_columns) - set(data_schema)
+    logger.info(f"Missing columns are {missing_columns}")
+    
+    if missing_columns:
+        error_files.append(data)
+    else:
+        logger.info(f"No missing columns for the {data}")
+        correct_files.append(data)
+        
+logger.info(f"List of correct files: {correct_files}")
+logger.info(f"List of error files: {error_files}")
+
+# Move error files to error directory
+error_folder_path = config.error_folder_path_local
+if error_files:
+    for file_path in error_files:
+        if os.path.exists(file_path):
+            file_name = os.path.basename(file_path)
+            destination_path = os.path.join(error_folder_path, file_name)
+            
+            shutil.move(file_path, destination_path)
+            logger.info(f"Moved '{file_name}' from S3 files download path to '{destination_path}'")
+            
+            source_prefix = config.s3_source_directory
+            destination_prefix = config.s3_error_directory
+            
+            message = move_s3_to_s3(s3_client=s3_client, 
+                                    bucket_name=bucket_name, 
+                                    source_prefix=source_prefix, 
+                                    destination_prefix=destination_prefix, 
+                                    file_name=file_name)
+            logger.info(f"{message}")
+        else:
+            logger.info(f"'{file_path}' does not exist.")
+else:
+    logger.info("*****There are no error files in our dataset*****")
+
+# Staging table must be updated with status Active (A) or Inactive (I)
+logger.info(f"***** Updating the product_staging_table that we have started the process *****")
+insert_statements = []
+db_name = config.database_name
+current_date = datetime.datetime.now()
+formatted_date = current_date.strftime("%Y-%m-%d %H:%M:%S")
+if correct_files:
+    for file_path in correct_files:
+        file_name = os.path.basename(file_path)
+        statements = f"INSERT INTO {db_name}.{config.product_staging_table} "\
+            f"(file_name, file_location, created_date, status) "\
+            f"Values ('{file_name}', '{file_path}', '{formatted_date}', 'A')"
+        insert_statements.append(statements)
+    logger.info(f"Insert statement created for staging table --- {insert_statements}")
+    logger.info("********** Connecting MySQL Server **********")
+    connection = get_mysql_connection()
+    cursor = connection.cursor()
+    logger.info("********** MySQL server connected **********")
+    for statement in insert_statements:
+        cursor.execute(statement)
+        connection.commit()
+    cursor.close()
+else:
+    logger.error("********** There are no files to process **********")
+    raise Exception("********** No data available with correct files **********")
+
+logger.info("********** Staging table updated successfully **********")
+
+# Additional columns needs to be taken care of
+# Determine additional columns
+logger.info("******** Fixing extra columns coming from source ********")
+
+schema = StructType([
+    StructField("customer_id", IntegerType(), True),
+    StructField("store_id", IntegerType(), True),
+    StructField("product_name", StringType(), True),
+    StructField("sales_date", DateType(), True),
+    StructField("sales_person_id", IntegerType(), True),
+    StructField("price", DoubleType(), True),
+    StructField("quantity", IntegerType(), True),
+    StructField("total_cost", DoubleType(), True),
+    StructField("additional_columns", StringType(), True)
+])
+
+logger.info("********** Creating empty dataframe **********")
+final_df_to_process = spark.createDataFrame(spark.sparkContext.emptyRDD(), schema)
+#database_client = DatabaseReader(config.url, config.properties)
+#final_df_to_process = database_client.create_dataframe(spark, "empty_df_create_table")
+
+for data in correct_files:
+    data_df = spark.read.format("csv")\
+        .option("header", "true")\
+        .option("inferSchema", "true")\
+        .load(data)
+    data_schema = data_df.columns
+    extra_columns = list(set(data_schema) - set(config.mandatory_columns))
+    logger.info(f"Extra columns: {extra_columns}")
+    
+    if extra_columns:
+        data_df = data_df.withColumn("additional_columns", concat_ws(", ", *extra_columns))\
+            .select("customer_id", "store_id", "product_name", "sales_date", "sales_person_id",
+                    "price", "quantity", "total_cost", "additional_columns")
+        logger.info(f"Processed {data} and added 'additional_columns'")
+        
+    else:
+        data_df = data_df.withColumn("additional_columns", lit(None))\
+            .select("customer_id", "store_id", "product_name", "sales_date", "sales_person_id",
+                    "price", "quantity", "total_cost", "additional_columns")
+    
+    final_df_to_process = final_df_to_process.unionByName(data_df)
+logger.info("***** Final Dataframe before processing *****")
+final_df_to_process.show()
