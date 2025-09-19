@@ -1,0 +1,17 @@
+boto3==1.40.30
+botocore==1.40.30
+colorama==0.4.6
+findspark==2.0.1
+jmespath==1.0.1
+loguru==0.7.3
+mysql-connector-python==9.4.0
+py4j==0.10.9.9
+pycryptodome==3.23.0
+pycryptodomex==3.23.0
+pyspark==4.0.1
+python-dateutil==2.9.0.post0
+s3transfer==0.14.0
+six==1.17.0
+urllib3==2.5.0
+win32_setctime==1.2.0
+-e .
