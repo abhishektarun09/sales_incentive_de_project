@@ -2,6 +2,9 @@ import datetime
 import shutil
 import sys
 import os
+from src.main.delete.local_file_delete import delete_local_file
+from src.main.transformations.jobs.customer_mart_sql_tranform_write import customer_mart_calculation_table_write
+from src.main.transformations.jobs.sales_mart_sql_transform_write import sales_mart_calculation_table_write
 from src.main.upload.upload_to_s3 import UploadToS3
 from src.main.utility.spark_session import spark_session
 from resources.dev import config
@@ -347,3 +350,17 @@ for root, dirs, files in os.walk(config.sales_team_data_mart_partitioned_local_f
         s3_client.upload_file(local_file_path, bucket_name, s3_key)
 
 logger.info("********** Partitioned sales team data uploaded to S3 **********")
+
+# Total money spent by each customer per month
+# Store data in MySQL
+logger.info("******** Calculating money spent by each customer per month ********")
+customer_mart_calculation_table_write(final_customer_data_mart_df)
+logger.info("******** Calculation completed and data saved in MySQL Table ********")
+
+# Total sales done by each sales person per month
+# Give top perpormer 1% incentive of total sales every month, rest gets nothing
+# Store data in MySQL
+logger.info("******** Calculating sales done by each sales person per month ********")
+sales_mart_calculation_table_write(final_sales_team_data_mart_df)
+logger.info("******** Calculation completed and data saved in MySQL Table *********")
+
