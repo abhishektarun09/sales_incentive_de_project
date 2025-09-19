@@ -9,7 +9,7 @@ from src.main.utility.logging_config import *
 def spark_session():
     spark = SparkSession.builder.master("local[*]") \
         .appName("tarun_spark")\
-        .config("spark.driver.extraClassPath", "C:\\my_sql_jar\\mysql-connector-java-8.0.26.jar") \
+        .config("spark.driver.extraClassPath", "C:\\Java\\mysql-connector-j-9.4.0\\mysql-connector-j-9.4.0.jar")\
         .getOrCreate()
     logger.info("spark session %s",spark)
     return spark

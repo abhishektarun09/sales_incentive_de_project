@@ -2,19 +2,21 @@ import datetime
 import shutil
 import sys
 import os
-
+from src.main.upload.upload_to_s3 import UploadToS3
+from src.main.utility.spark_session import spark_session
 from resources.dev import config
 from src.main.download.aws_file_download import S3FileDownloader
 from src.main.move.move_files import move_s3_to_s3
 from src.main.read.aws_read import S3Reader
 from src.main.read.database_read import DatabaseReader
-from src.main.utility.spark_session import spark_session
+from src.main.transformations.jobs.dimension_tables_join import dimensions_table_join
 from src.main.utility.s3_client_object import S3ClientProvider
 from src.main.utility.encrypt_decrypt import decrypt
 from src.main.utility.logging_config import logger
 from src.main.utility.my_sql_session import get_mysql_connection
 from pyspark.sql.types import *
 from pyspark.sql.functions import *
+from src.main.write.parquet_writer import ParquetWriter
 
 # S3 Client
 aws_access_key = config.aws_access_key
@@ -234,3 +236,90 @@ for data in correct_files:
     final_df_to_process = final_df_to_process.unionByName(data_df)
 logger.info("***** Final Dataframe before processing *****")
 final_df_to_process.show()
+
+# Connect with DatabaseReader
+database_client = DatabaseReader(config.url, config.properties)
+
+# Create df of all dim tables in database
+
+# Customer table
+customer_df = database_client.create_dataframe(spark, config.customer_table_name)
+logger.info("********** Customer table loaded to dataframe **********")
+# Product table
+product_df = database_client.create_dataframe(spark, config.product_table)
+logger.info("********** Product table loaded to dataframe **********")
+# Product staging table
+product_staging_table_df = database_client.create_dataframe(spark, config.product_staging_table)
+logger.info("********** Product staging table loaded to dataframe **********")
+# Sales team table
+sales_team_df = database_client.create_dataframe(spark, config.sales_team_table)
+logger.info("********** Sales team table loaded to dataframe **********")
+# Stores table
+store_df = database_client.create_dataframe(spark, config.store_table)
+logger.info("********** Store table loaded to dataframe **********")
+
+s3_customer_store_sales_df_join = dimensions_table_join(final_df_to_process,
+                                                        customer_df,
+                                                        store_df,
+                                                        sales_team_df
+                                                        )
+
+# Final enriched data
+s3_customer_store_sales_df_join.show()
+
+# Write customer data into customer data mart (parquet)
+# Write in local then move to S3 for reporting
+
+logger.info("********** Writing data into customer data mart **********")
+final_customer_data_mart_df = s3_customer_store_sales_df_join\
+                                .select("ct.customer_id", "ct.first_name", "ct.last_name", "ct.address",
+                                        "ct.pincode", "phone_number", "sales_date", "total_cost"
+                                        )
+logger.info("********** Final dataframe for customer data mart **********")
+final_customer_data_mart_df.show()
+
+parquet_writer = ParquetWriter("overwrite", "parquet")
+parquet_writer.dataframe_writer(final_customer_data_mart_df, 
+                                config.customer_data_mart_local_file
+                                )
+
+logger.info(f"****** Customer data saved in local at {config.customer_data_mart_local_file} ******")
+
+# Move data to customer data mart on S3
+logger.info("***** Moving customer data from local To S3 in customer data mart *****")
+s3_uploader = UploadToS3(s3_client)
+s3_cdm_directory = config.s3_customer_datamart_directory
+message = s3_uploader.upload_to_s3(s3_directory=s3_cdm_directory, 
+                                   s3_bucket=bucket_name, 
+                                   local_file_path=config.customer_data_mart_local_file
+                                   )
+logger.info(message)
+
+# Write customer data into sales team data mart (parquet)
+# Write in local then move to S3 for reporting
+
+logger.info("********** Writing data into sales team data mart **********")
+final_sales_team_data_mart_df = s3_customer_store_sales_df_join\
+                                .select("store_id", "sales_person_id", "sales_person_first_name", 
+                                        "sales_person_last_name", "store_manager_name", "manager_id", 
+                                        "is_manager", "sales_person_address", "sales_person_pincode",
+                                        "sales_date", "total_cost", 
+                                        expr("SUBSTRING(sales_date,1,7) as sales_month")
+                                        )
+logger.info("********** Final dataframe for sales team data mart **********")
+final_sales_team_data_mart_df.show()
+
+parquet_writer.dataframe_writer(final_sales_team_data_mart_df, 
+                                config.sales_team_data_mart_local_file
+                                )
+
+logger.info(f"****** Sales team data saved in local at {config.sales_team_data_mart_local_file} ******")
+
+# Move data to customer data mart on S3
+logger.info("***** Moving Sales team data from local To S3 in sales team data mart *****")
+s3_stdm_directory = config.s3_sales_datamart_directory
+message = s3_uploader.upload_to_s3(s3_directory=s3_stdm_directory, 
+                                   s3_bucket=bucket_name, 
+                                   local_file_path=config.sales_team_data_mart_local_file
+                                   )
+logger.info(message)

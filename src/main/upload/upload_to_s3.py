@@ -16,7 +16,7 @@ class UploadToS3:
                     local_file_path = os.path.join(root, file)
                     s3_key = f"{s3_prefix}/{file}"
                     self.s3_client.upload_file(local_file_path, s3_bucket, s3_key)
-            return f"Data Successfully uploaded in {s3_directory} data mart "
+            return f"Data Successfully uploaded in {s3_directory} data mart"
         except Exception as e:
             logger.error(f"Error uploading file : {str(e)}")
             traceback_message = traceback.format_exc()
