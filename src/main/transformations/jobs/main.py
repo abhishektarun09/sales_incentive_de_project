@@ -1,3 +1,4 @@
+from src.main.utility.spark_session import spark_session
 import datetime
 import shutil
 import sys
@@ -6,7 +7,6 @@ from src.main.delete.local_file_delete import delete_local_file
 from src.main.transformations.jobs.customer_mart_sql_tranform_write import customer_mart_calculation_table_write
 from src.main.transformations.jobs.sales_mart_sql_transform_write import sales_mart_calculation_table_write
 from src.main.upload.upload_to_s3 import UploadToS3
-from src.main.utility.spark_session import spark_session
 from resources.dev import config
 from src.main.download.aws_file_download import S3FileDownloader
 from src.main.move.move_files import move_s3_to_s3
@@ -74,7 +74,6 @@ except Exception as e:
 # Download files from S3
 bucket_name = config.bucket_name
 local_directory = config.local_directory
-'''
 prefix = f"s3://{bucket_name}/"
 file_paths = [url[len(prefix):] for url in s3_absolute_file_path]
 logger.info("File path available on S3 under %s bucket and folder name is %s", bucket_name, file_paths)
@@ -85,7 +84,7 @@ try:
     downloader.download_files(file_paths)
 except Exception as e:
     logger.error(f"File download error: {e}")
-    sys.exit()'''
+    sys.exit()
     
 # List of files in local directory
 all_files = os.listdir(local_directory)
@@ -364,3 +363,62 @@ logger.info("******** Calculating sales done by each sales person per month ****
 sales_mart_calculation_table_write(final_sales_team_data_mart_df)
 logger.info("******** Calculation completed and data saved in MySQL Table *********")
 
+########## Final Step ##########
+# Move S3 files into processed folder and delete local files
+
+source_prefix = config.s3_source_directory
+destination_prefix = config.s3_processed_directory
+message = move_s3_to_s3(s3_client=s3_client,
+                        bucket_name=bucket_name,
+                        source_prefix=source_prefix,
+                        destination_prefix=destination_prefix
+                        )
+logger.info(message)
+
+logger.info("************* Deleting sales data from local ************")
+delete_local_file(config.local_directory)
+logger.info("*********************** Deleted *************************")
+
+logger.info("*********** Deleting customer data from local ***********")
+delete_local_file(config.customer_data_mart_local_file)
+logger.info("*********************** Deleted *************************")
+
+logger.info("********** Deleting sales team data from local **********")
+delete_local_file(config.sales_team_data_mart_local_file)
+logger.info("*********************** Deleted *************************")
+
+logger.info("**** Deleting sales team partitioned data from local ****")
+delete_local_file(config.sales_team_data_mart_partitioned_local_file)
+logger.info("*********************** Deleted *************************")
+
+logger.info("************ Deleting error files from local ************")
+delete_local_file(config.error_folder_path_local)
+logger.info("*********************** Deleted *************************")
+
+# Update status of staging table in MySQL
+update_statements = []
+if correct_files:
+    for file in correct_files:
+        file_name = os.path.basename(file)
+        statement = f"UPDATE {db_name}.{config.product_staging_table} SET status = 'I', updated_date = '{formatted_date}' WHERE file_name = '{file_name}'"
+        
+        update_statements.append(statement)
+    logger.info(f"Update statements created for staging table --- {update_statements}")
+    logger.info("********** Connecting MySQL *********")
+    connection = get_mysql_connection()
+    cursor = connection.cursor()
+    logger.info("********** MySQL Connected **********")
+    
+    for statement in update_statements:
+        cursor.execute(statement)
+        connection.commit()
+    cursor.close()
+    connection.close()
+    logger.info("********** MySQL tables updated **********")
+    
+else:
+    logger.error("********** There was an error in between **********")
+    sys.exit()
+
+logger.info("*************** Reached end of Pipeline ***************")
+input("Press enter to terminate")

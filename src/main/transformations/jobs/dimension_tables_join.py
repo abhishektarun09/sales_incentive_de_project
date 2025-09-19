@@ -19,8 +19,6 @@ def dimensions_table_join(final_df_to_process,
         .drop("product_name","price","quantity","additional_column",
               "s3_data.customer_id","customer_joining_date")
 
-    s3_customer_df_join.printSchema()
-
     #step 2 where i am adding store table details
     # s3_customer_df_join.join(store_table_df,
     #                          store_table_df["id"]==s3_customer_df_join["store_id"],

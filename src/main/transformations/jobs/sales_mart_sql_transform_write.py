@@ -7,10 +7,10 @@ from src.main.write.database_write import DatabaseWriter
 def sales_mart_calculation_table_write(final_sales_team_data_mart_df):
     window = Window.partitionBy("store_id", "sales_person_id", "sales_month")
     final_sales_team_data_mart = final_sales_team_data_mart_df\
-                                    .withColumn("sales_month", substring(col("sales_date"), 1, 7))\
+                                    .withColumn("sales_month", to_date(concat(substring(col("sales_date"), 1, 7), lit("-01"))))\
                                     .withColumn("total_sales_each_month", sum(col("total_cost")).over(window=window))\
                                     .select("store_id", "sales_person_id",
-                                            concat(col("sales_person_first_name", lit(" "), col("sales_person_last_name"))).alias("full_name"),
+                                            concat(col("sales_person_first_name"), lit(" "), col("sales_person_last_name")).alias("full_name"),
                                             "sales_month", "total_sales_each_month").distinct()
                                     
     rank_window = Window.partitionBy("store_id", "sales_month")\
